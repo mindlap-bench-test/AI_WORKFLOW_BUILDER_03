@@ -1,5 +1,6 @@
 import express from 'express';
 import * as db from './db.js';
+import { executeWorkflow } from './executor.js';
 
 const app = express();
 
@@ -108,6 +109,115 @@ app.post('/workflows/:id/steps', async (req, res) => {
   } catch (error) {
     console.error('Error creating step', error);
     res.status(500).json({ error: 'Failed to create step' });
+  }
+});
+
+app.post('/workflows/:id/triggers', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { type, config, enabled } = req.body;
+
+    if (!type) {
+      return res.status(400).json({ error: 'Trigger type is required' });
+    }
+
+    const workflowCheck = await db.query('SELECT id FROM workflows WHERE id = $1', [id]);
+    if (workflowCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const result = await db.query(
+      'INSERT INTO triggers (workflow_id, type, config, enabled) VALUES ($1, $2, $3, $4) RETURNING id, type, config, enabled',
+      [id, type, config || null, enabled !== false]
+    );
+
+    res.status(201).json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating trigger', error);
+    res.status(500).json({ error: 'Failed to create trigger' });
+  }
+});
+
+app.get('/workflows/:id/triggers', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const workflowCheck = await db.query('SELECT id FROM workflows WHERE id = $1', [id]);
+    if (workflowCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const result = await db.query(
+      'SELECT id, type, config, enabled FROM triggers WHERE workflow_id = $1 ORDER BY created_at',
+      [id]
+    );
+
+    res.json({ triggers: result.rows });
+  } catch (error) {
+    console.error('Error fetching triggers', error);
+    res.status(500).json({ error: 'Failed to fetch triggers' });
+  }
+});
+
+app.get('/workflows/:id/triggers/:triggerId', async (req, res) => {
+  try {
+    const { id, triggerId } = req.params;
+
+    const workflowCheck = await db.query('SELECT id FROM workflows WHERE id = $1', [id]);
+    if (workflowCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const result = await db.query(
+      'SELECT id, type, config, enabled FROM triggers WHERE id = $1 AND workflow_id = $2',
+      [triggerId, id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Trigger not found' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching trigger', error);
+    res.status(500).json({ error: 'Failed to fetch trigger' });
+  }
+});
+
+app.post('/workflows/:id/triggers/:triggerId/fire', async (req, res) => {
+  try {
+    const { id, triggerId } = req.params;
+
+    const workflowCheck = await db.query('SELECT id FROM workflows WHERE id = $1', [id]);
+    if (workflowCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Workflow not found' });
+    }
+
+    const triggerCheck = await db.query(
+      'SELECT id FROM triggers WHERE id = $1 AND workflow_id = $2',
+      [triggerId, id]
+    );
+    if (triggerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Trigger not found' });
+    }
+
+    const executionResult = await db.query(
+      'INSERT INTO executions (workflow_id, trigger_id, status) VALUES ($1, $2, $3) RETURNING id',
+      [id, triggerId, 'pending']
+    );
+
+    const executionId = executionResult.rows[0].id;
+
+    try {
+      const executionResult = await executeWorkflow(executionId);
+      res.status(200).json({ execution: executionResult });
+    } catch (error) {
+      console.error('Error executing workflow', error);
+      res.status(500).json({ error: 'Failed to execute workflow' });
+    }
+  } catch (error) {
+    console.error('Error firing trigger', error);
+    res.status(500).json({ error: 'Failed to fire trigger' });
   }
 });
 
