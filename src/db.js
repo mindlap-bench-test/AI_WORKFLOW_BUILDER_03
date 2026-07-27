@@ -55,6 +55,47 @@ export async function initialize() {
       )
     `);
 
+    await query(`
+      CREATE TABLE IF NOT EXISTS triggers (
+        id SERIAL PRIMARY KEY,
+        workflow_id INTEGER NOT NULL,
+        type VARCHAR(50) NOT NULL,
+        config JSONB,
+        enabled BOOLEAN DEFAULT true,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE
+      )
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS executions (
+        id SERIAL PRIMARY KEY,
+        workflow_id INTEGER NOT NULL,
+        trigger_id INTEGER NOT NULL,
+        status VARCHAR(50) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        completed_at TIMESTAMP,
+        FOREIGN KEY (workflow_id) REFERENCES workflows(id) ON DELETE CASCADE,
+        FOREIGN KEY (trigger_id) REFERENCES triggers(id) ON DELETE CASCADE
+      )
+    `);
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS logs (
+        id SERIAL PRIMARY KEY,
+        execution_id INTEGER NOT NULL,
+        step_id INTEGER NOT NULL,
+        action_type VARCHAR(50),
+        status VARCHAR(50),
+        result JSONB,
+        error TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (execution_id) REFERENCES executions(id) ON DELETE CASCADE,
+        FOREIGN KEY (step_id) REFERENCES steps(id) ON DELETE CASCADE
+      )
+    `);
+
     console.log('Database schema initialized successfully');
   } catch (error) {
     console.error('Failed to initialize database schema', error);
